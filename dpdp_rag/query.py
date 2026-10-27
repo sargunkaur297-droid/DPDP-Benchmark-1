@@ -229,6 +229,28 @@ def _hybrid_rerank(question: str, dense: list[dict], bm25: list[dict],
         h["score"] = (0.55 * dense_score + 0.45 * bm25_score) * h["authority"]
     ranked = sorted(hits, key=lambda h: -h["score"])
     return ranked[:k]
+                            
+    ranked = _hybrid_rerank(question, dense, bm25, k)
+
+    print(f"\n[DEBUG] Question: {question}")
+    print(f"[DEBUG] Dense hits: {len(dense)} | BM25 hits: {len(bm25)}")
+
+    for label, hits in [
+        ("DENSE", dense[:5]),
+        ("BM25", bm25[:5]),
+        ("FINAL", ranked),
+    ]:
+        print(f"\n[{label}]")
+        for i, hit in enumerate(hits, 1):
+            meta = hit.get("meta", {})
+            print(
+                f"{i}. source={meta.get('source')} "
+                f"| unit={meta.get('unit')} "
+                f"| text={hit.get('text', '')[:250]!r}"
+            )
+
+    return ranked
+
 
 
 def retrieve(question: str, k: int = config.TOP_K,
@@ -257,8 +279,7 @@ def retrieve(question: str, k: int = config.TOP_K,
     _report(progress, "Checking exact legal terms", 40)
     bm25 = _bm25_search(question, n=max(16, k * 2))
     _report(progress, "Ranking the strongest sources", 48)
-    return _hybrid_rerank(question, dense, bm25, k)
-
+    
 
 def _gpu_dense_search(collection, query_embedding: list[float],
                       n: int) -> list[dict] | None:
