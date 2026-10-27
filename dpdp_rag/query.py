@@ -257,7 +257,50 @@ def retrieve(question: str, k: int = config.TOP_K,
     _report(progress, "Checking exact legal terms", 40)
     bm25 = _bm25_search(question, n=max(16, k * 2))
     _report(progress, "Ranking the strongest sources", 48)
-    return _hybrid_rerank(question, dense, bm25, k)
+    
+    ranked = _hybrid_rerank(question, dense, bm25, k)
+
+    q_lower = question.lower()
+    asks_overview = (
+        ("what is" in q_lower or "define" in q_lower or "explain" in q_lower)
+        and ("dpdp" in q_lower or "digital personal data protection" in q_lower)
+    )
+
+    if asks_overview:
+        with _chroma_lock:
+            opening = col.get(
+                where={"unit": "preamble"},
+                include=["documents", "metadatas"],
+            )
+
+        if opening.get("documents"):
+            overview_hits = [
+                {"text": doc, "meta": meta}
+                for doc, meta in zip(
+                    opening["documents"], opening["metadatas"]
+                )
+            ]
+
+            existing = {
+                (h["meta"].get("source"), h["meta"].get("unit"), h["text"][:80])
+                for h in overview_hits
+            }
+
+            for hit in ranked:
+                key = (
+                    hit["meta"].get("source"),
+                    hit["meta"].get("unit"),
+                    hit["text"][:80],
+                )
+                if key not in existing:
+                    overview_hits.append(hit)
+                    existing.add(key)
+
+            ranked = overview_hits[:k]
+
+    return ranked
+   
+    
 
 
 def _gpu_dense_search(collection, query_embedding: list[float],
