@@ -230,6 +230,62 @@ def _hybrid_rerank(question: str, dense: list[dict], bm25: list[dict],
     ranked = sorted(hits, key=lambda h: -h["score"])
     return ranked[:k]
                             
+    q = question.lower()
+
+    asks_definitions = (
+        "section 2" in q
+        or "s. 2" in q
+        or (
+            "data fiduciary" in q
+            and "data processor" in q
+        )
+    )
+
+    if asks_definitions:
+        with _chroma_lock:
+            result = col.get(
+                where={"unit": "s. 2"},
+                include=["documents", "metadatas"],
+            )
+
+        definition_hits = []
+        for doc, meta in zip(
+            result.get("documents") or [],
+            result.get("metadatas") or [],
+        ):
+            if (
+                meta.get("doc_type") == "act"
+                and "DPDP Act 2023" in meta.get("source", "")
+            ):
+                definition_hits.append({
+                    "text": doc,
+                    "meta": meta,
+                })
+
+        if definition_hits:
+            seen = {
+                (
+                    h["meta"].get("source"),
+                    h["meta"].get("unit"),
+                    h["meta"].get("part"),
+                )
+                for h in definition_hits
+            }
+
+            remaining = [
+                h for h in ranked
+                if (
+                    h["meta"].get("source"),
+                    h["meta"].get("unit"),
+                    h["meta"].get("part"),
+                ) not in seen
+            ]
+
+            ranked = (definition_hits + remaining)[:k]
+
+    return ranked
+
+                            
     ranked = _hybrid_rerank(question, dense, bm25, k)
 
     print(f"\n[DEBUG] Question: {question}")
